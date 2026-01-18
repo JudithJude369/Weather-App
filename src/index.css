@@ -80,7 +80,9 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  /* --background: oklch(0.145 0 0); */
+  /* dark-mode */
+  --background: hsl(243, 96%, 9%);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -124,4 +126,8 @@
 @theme {
   --font-heading: "DM Sans", sans-serif;
   --font-body: "Bricolage Grotesque", sans-serif;
+}
+
+.logo {
+  mix-blend-mode: difference;
 }

@@ -1,10 +1,20 @@
-import { Button } from "@/components/ui/button";
+import Logo from "./components/Logo";
+import { ModeToggle } from "./components/mode-toggle";
+import SearchInput from "./components/SearchInput";
+import Title from "./components/Title";
 
 function App() {
   return (
-    <div>
-      <Button>Click me</Button>
-    </div>
+    <main className="flex flex-col justify-center p-8 font-body">
+      <header className="flex justify-between items-center">
+        <Logo />
+        <ModeToggle />
+      </header>
+      <section>
+        <Title />
+        <SearchInput />
+      </section>
+    </main>
   );
 }
 
