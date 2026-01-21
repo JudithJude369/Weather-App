@@ -4,12 +4,19 @@ import "./index.css";
 import App from "./App.tsx";
 import { AppProviders } from "./AppProviders/AppProviders.tsx";
 import { SearchProvider } from "./contexts/search-context.tsx";
+import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+
+const queryClient = new QueryClient();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AppProviders>
       <SearchProvider>
-        <App />
+        <QueryClientProvider client={queryClient}>
+          <App />
+          <ReactQueryDevtools initialIsOpen={false} />
+        </QueryClientProvider>
       </SearchProvider>
     </AppProviders>
   </StrictMode>,
