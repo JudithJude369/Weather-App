@@ -1,3 +1,4 @@
+import Weather from "./components/ Weather ";
 import Logo from "./components/Logo";
 import { ModeToggle } from "./components/mode-toggle";
 import SearchInput from "./components/SearchInput";
@@ -13,6 +14,7 @@ function App() {
       <section>
         <Title />
         <SearchInput />
+        <Weather />
       </section>
     </main>
   );
