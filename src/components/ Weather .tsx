@@ -1,137 +1,88 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import axios from "axios";
-
-/* =======================
-   GEO TYPES
-======================= */
-interface GeoResult {
-  latitude: number;
-  longitude: number;
-  name: string;
-  country: string;
-}
-
-interface GeoResponse {
-  results: GeoResult[];
-}
-
-/* =======================
-   WEATHER TYPES
-======================= */
-interface CurrentWeather {
-  temperature: number;
-  windspeed: number;
-  weathercode: number;
-}
-
-interface HourlyData {
-  time: string[];
-  temperature_2m: number[];
-  apparent_temperature: number[];
-  relative_humidity_2m: number[];
-  precipitation: number[];
-  wind_speed_10m: number[];
-  weathercode: number[];
-}
-
-interface DailyData {
-  time: string[];
-  temperature_2m_max: number[];
-  temperature_2m_min: number[];
-  precipitation_sum: number[];
-  weathercode: number[];
-}
-
-interface WeatherResponse {
-  current_weather: CurrentWeather;
-  hourly: HourlyData;
-  daily: DailyData;
-}
-
-/* =======================
-   API URLS
-======================= */
-const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
-const WEATHER_URL = "https://api.open-meteo.com/v1/forecast";
+import { fetchGeoLocation } from "@/components/api/geo";
+import { fetchWeather } from "@/components/api/weather";
 
 /* =======================
    COMPONENT
 ======================= */
 const Weather = () => {
-  const [searchTerm, setSearchTerm] = useState<string>("Lagos");
+  const [searchTerm, setSearchTerm] = useState("Lagos");
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(
+    null,
+  );
 
-  /* ---------- GEO QUERY ---------- */
-  const geoQuery = useQuery<GeoResponse>({
+  /* =======================
+     GEOLOCATION (FIRST VISIT)
+  ======================= */
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setCoords({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        });
+      },
+      () => {
+        // permission denied → fallback to search
+      },
+    );
+  }, []);
+
+  /* =======================
+     GEO QUERY (CITY SEARCH)
+  ======================= */
+  const geoQuery = useQuery({
     queryKey: ["geo", searchTerm],
-    enabled: !!searchTerm,
-    queryFn: async () => {
-      const res = await axios.get<GeoResponse>(GEO_URL, {
-        params: {
-          name: searchTerm,
-          count: 1,
-        },
-      });
-      return res.data;
-    },
+    enabled: !!searchTerm && !coords,
+    queryFn: () => fetchGeoLocation(searchTerm),
   });
 
-  if (geoQuery.isPending) {
-    return <h4 style={{ textAlign: "center" }}>Searching location...</h4>;
-  }
+  const latitude = coords?.lat ?? geoQuery.data?.results?.[0]?.latitude;
+  const longitude = coords?.lon ?? geoQuery.data?.results?.[0]?.longitude;
+  const locationName = geoQuery.data?.results?.[0]?.name ?? "Your Location";
+  const country = geoQuery.data?.results?.[0]?.country ?? "";
 
-  if (geoQuery.isError || !geoQuery.data?.results?.length) {
-    return <h4 style={{ textAlign: "center" }}>Location not found</h4>;
-  }
-
-  const { latitude, longitude, name, country } = geoQuery.data.results[0];
-
-  /* ---------- WEATHER QUERY ---------- */
-  const weatherQuery = useQuery<WeatherResponse>({
+  /* =======================
+     WEATHER QUERY
+  ======================= */
+  const weatherQuery = useQuery({
     queryKey: ["weather", latitude, longitude],
     enabled: !!latitude && !!longitude,
-    queryFn: async () => {
-      const res = await axios.get<WeatherResponse>(WEATHER_URL, {
-        params: {
-          latitude,
-          longitude,
-          current_weather: true,
-          hourly:
-            "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,weathercode",
-          daily:
-            "temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum",
-          forecast_days: 7,
-          timezone: "auto",
-        },
-      });
-      return res.data;
-    },
+    queryFn: () => fetchWeather(latitude!, longitude!),
   });
 
-  if (weatherQuery.isPending) {
-    return <h4 style={{ textAlign: "center" }}>Loading weather...</h4>;
-  }
-
-  if (weatherQuery.isError || !weatherQuery.data) {
-    return <h4 style={{ textAlign: "center" }}>Weather error</h4>;
-  }
+  if (weatherQuery.isPending) return <p>Loading weather...</p>;
+  if (weatherQuery.isError || !weatherQuery.data)
+    return <p>Error loading weather</p>;
 
   const { current_weather, hourly, daily } = weatherQuery.data;
 
   /* =======================
-     HELPERS
+     DAY SELECTOR LOGIC
   ======================= */
-  const today = new Date().toISOString().split("T")[0];
+  const activeDay = selectedDay ?? daily.time[0];
 
-  const todayHourly = hourly.time
-    .map((time, index) => ({
-      time,
-      temperature: hourly.temperature_2m[index],
-      weathercode: hourly.weathercode[index],
-    }))
-    .filter((item) => item.time.startsWith(today));
+  const hourlyForDay = useMemo(() => {
+    return hourly.time
+      .map((time, index) => ({
+        time,
+        temperature: hourly.temperature_2m[index],
+        feelsLike: hourly.apparent_temperature[index],
+        humidity: hourly.relative_humidity_2m[index],
+        precipitation: hourly.precipitation[index],
+        code: hourly.weathercode[index],
+      }))
+      .filter((item) => item.time.startsWith(activeDay));
+  }, [hourly, activeDay]);
 
-  const getIcon = (code: number): string => {
+  /* =======================
+     ICON MAPPER
+  ======================= */
+  const getIcon = (code: number) => {
     if (code === 0) return "☀️";
     if (code <= 3) return "⛅";
     if (code <= 67) return "🌧️";
@@ -140,51 +91,103 @@ const Weather = () => {
   };
 
   /* =======================
+     VOICE SEARCH (OPTIONAL)
+  ======================= */
+  const handleVoiceSearch = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice search not supported");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      setCoords(null); // override geolocation
+      setSearchTerm(event.results[0][0].transcript);
+    };
+
+    recognition.start();
+  };
+
+  /* =======================
      UI
   ======================= */
   return (
     <section style={{ maxWidth: "900px", margin: "2rem auto" }}>
       {/* Search */}
-      <input
-        type="text"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        placeholder="Search city..."
-        style={{
-          padding: "0.6rem",
-          width: "100%",
-          marginBottom: "1rem",
-        }}
-      />
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        <input
+          value={searchTerm}
+          onChange={(e) => {
+            setCoords(null);
+            setSearchTerm(e.target.value);
+          }}
+          placeholder="Search city..."
+          style={{ flex: 1, padding: "0.6rem" }}
+        />
+        <button onClick={handleVoiceSearch}>🎤</button>
+      </div>
 
       {/* Current Weather */}
       <h2>
-        {name}, {country}
+        {locationName} {country && `, ${country}`}
       </h2>
       <p style={{ fontSize: "2.5rem" }}>
         {current_weather.temperature}°C {getIcon(current_weather.weathercode)}
       </p>
-      <p>Wind Speed: {current_weather.windspeed} km/h</p>
+
+      {/* Extra Metrics */}
+      <div style={{ display: "flex", gap: "1.5rem" }}>
+        <p>Feels like: {hourly.apparent_temperature[0]}°C</p>
+        <p>Humidity: {hourly.relative_humidity_2m[0]}%</p>
+        <p>Wind: {current_weather.windspeed} km/h</p>
+        <p>Precipitation: {hourly.precipitation[0]} mm</p>
+      </div>
+
+      {/* Day Selector */}
+      <h3 style={{ marginTop: "2rem" }}>Hourly Forecast</h3>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        {daily.time.map((day) => (
+          <button
+            key={day}
+            onClick={() => setSelectedDay(day)}
+            style={{
+              background: day === activeDay ? "#333" : "#eee",
+              color: day === activeDay ? "#fff" : "#000",
+            }}
+          >
+            {day}
+          </button>
+        ))}
+      </div>
 
       {/* Hourly Forecast */}
-      <h3 style={{ marginTop: "2rem" }}>Hourly Forecast (Today)</h3>
-      <div style={{ display: "flex", gap: "1rem", overflowX: "auto" }}>
-        {todayHourly.map((hour) => (
+      <div
+        style={{
+          display: "flex",
+          gap: "1rem",
+          overflowX: "auto",
+          marginTop: "1rem",
+        }}
+      >
+        {hourlyForDay.map((hour) => (
           <div key={hour.time} style={{ textAlign: "center" }}>
             <p>{hour.time.split("T")[1]}</p>
             <p>{hour.temperature}°C</p>
-            <p>{getIcon(hour.weathercode)}</p>
+            <p>{getIcon(hour.code)}</p>
           </div>
         ))}
       </div>
 
-      {/* Daily Forecast */}
+      {/* 7-Day Forecast */}
       <h3 style={{ marginTop: "2rem" }}>7-Day Forecast</h3>
       {daily.time.map((day, index) => (
-        <div
-          key={day}
-          style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}
-        >
+        <div key={day} style={{ display: "flex", gap: "1rem" }}>
           <p>{day}</p>
           <p>
             {daily.temperature_2m_min[index]}° /{" "}
